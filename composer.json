@@ -1,0 +1,12 @@
+{
+    "name": "ibmc/server-api",
+    "description": "华为ibmc redfish接口",
+    "type": "library",
+    "autoload": {
+        "psr-4": {
+            "Ibmc\\ServerApi\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "require": {}
+}
