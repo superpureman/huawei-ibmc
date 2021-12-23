@@ -25,21 +25,16 @@ class ServerOperation
     public function getAuthToken($ip)
     {
         $input           = [];
-        $input['url']    = "http://$ip/redfish/v1/SessionService/sessions";
+        $input['url']    = "https://$ip/redfish/v1/SessionService/sessions";
         $input['params'] = [
-            'userName' => $this->userName,
+            'UserName' => $this->userName,
             'Password' => $this->password,
-            'Oem'      => [
-                'Huawei' => [
-                    'Domain' => 'domain',
-                ]
-            ],
         ];
 
-        $headers = $this->requestPost($input['url'], json_encode($input['params'], 320), true);
+        $headers = $this->requestPost($input['url'], json_encode($input['params'], 320), false);
 
-        if (!empty($headers) && !empty($headers['x-auth-token'])) {
-            $this->header = $headers['x-auth-token'];
+        if ($headers) {
+            $this->header = $headers;
             return true;
         }
         return false;
@@ -52,7 +47,7 @@ class ServerOperation
      */
     public function getServerStatus($ip)
     {
-        if (!isset($ip)) {
+        if (!$ip) {
             throw new \Exception('ip must be exist', 40100);
         }
         $is_token = $this->getAuthToken($ip);
@@ -62,10 +57,10 @@ class ServerOperation
         $input['params'] = [];
         $input['url']    = "https://$ip/redfish/v1/SystemOverview";
         $ret             = $this->call($input);
-        if (!empty($ret)) {
-            return $ret['Systems']['HealthSummary'];
+        if (!empty($ret['Systems'][0]['HealthSummary'])) {
+            return $ret['Systems'][0]['HealthSummary'];
         }
-        return false;
+        throw new \Exception('get server Systems failed');
     }
 
 
@@ -179,19 +174,22 @@ class ServerOperation
         return $result;
     }
 
-    private function requestPost($url, $data, $isHeader = false)
+    private function requestPost($url, $data, $isHeader = true)
     {
         //初始化
-        $curl   = curl_init();
-        $header = array('Content-Type: application/json', 'Content-Length: ' . strlen($data));
+        $curl         = curl_init();
+        $header_value = array('Content-Type: application/json', 'Content-Length: ' . strlen($data));
 
-        if (!$isHeader) {
-            array_push($header, ['X-Auth-Token: ' . $this->header]);
+        $header_flag = 1;
+
+        if ($isHeader) {
+            array_push($header_value, ['X-Auth-Token: ' . $this->header]);
+            $header_flag = 0;
         }
         //设置抓取的url
         curl_setopt($curl, CURLOPT_URL, $url);
         //设置头文件的信息作为数据流输出
-        curl_setopt($curl, CURLOPT_HEADER, 0);
+        curl_setopt($curl, CURLOPT_HEADER, $header_flag);
         //设置获取的信息以文件流的形式返回，而不是直接输出。
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
         //设置post方式提交
@@ -200,30 +198,30 @@ class ServerOperation
         curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
         curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);//绕过ssl验证
         curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($curl, CURLOPT_HTTPHEADER, $header);
-        $headers = [];
-        if ($isHeader) {
-            curl_setopt($curl, CURLOPT_HEADERFUNCTION,
-                function ($curl_info, $header) use (&$headers) {
-                    $len    = strlen($header);
-                    $header = explode(':', $header, 2);
-                    if (count($header) < 2) // ignore invalid headers
-                        return $len;
+        curl_setopt($curl, CURLOPT_HTTPHEADER, $header_value);
 
-                    $headers[strtolower(trim($header[0]))][] = trim($header[1]);
-
-                    return $len;
-                }
-            );
-        }
         //执行命令
         $result = curl_exec($curl);
 
+        if ($isHeader) {
+            $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+            curl_close($curl);
+
+            $headers = substr($result, 0, $header_size);
+            if (!empty($headers)) {
+                $header_arr = explode("\r\n", $headers);
+
+                foreach ($header_arr as $header) {
+                    if (strpos($header, 'X-Auth-Token') !== false) {
+                        return trim(substr($header, 13));
+                    }
+                }
+            }
+            return false;
+        }
+
         //关闭URL请求
         curl_close($curl);
-        if ($isHeader) {
-            return $headers;
-        }
         //显示获得的数据
         return $result;
     }
